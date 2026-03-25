@@ -4,9 +4,20 @@ const {
   GatewayIntentBits,
   AttachmentBuilder,
 } = require("discord.js");
-const { createCanvas, loadImage } = require("canvas");
+const { createCanvas, loadImage, registerFont } = require("canvas");
 const GIFEncoder = require("gif-encoder-2");
 
+
+registerFont("./assets/fonts/Nunito-Bold.ttf", {
+    family: "DonutFont",
+    weight: "bold",
+  });
+  
+  registerFont("./assets/fonts/Nunito-Regular.ttf", {
+    family: "DonutFont",
+    weight: "normal",
+  });
+  
 const {
   addDonuts,
   setDonuts,
@@ -537,7 +548,7 @@ function drawLeaderboardFrame(
   drawHeaderShimmer(ctx, outerPadding, width, frame);
 
   ctx.fillStyle = "#FFF9FC";
-  ctx.font = "bold 42px DejaVu Sans";
+  ctx.font = "bold 42px DonutFont";
   ctx.fillText("APEX DONUT LEADERBOARD", outerPadding + 34, outerPadding + 58);
 
   const colX = {
@@ -548,7 +559,7 @@ function drawLeaderboardFrame(
   };
 
   ctx.fillStyle = "#9B5E7C";
-  ctx.font = "bold 15px DejaVu Sans";
+  ctx.font = "bold 15px DonutFont";
   ctx.fillText("RANK", colX.rank, outerPadding + headerHeight + 32);
   ctx.fillText("PLAYER", colX.player, outerPadding + headerHeight + 32);
   ctx.fillText("DONUTS", colX.donuts, outerPadding + headerHeight + 32);
@@ -591,7 +602,7 @@ function drawLeaderboardFrame(
     ctx.fill();
 
     ctx.fillStyle = colors.badgeText;
-    ctx.font = "bold 22px DejaVu Sans";
+    ctx.font = "bold 22px DonutFont";
     const rankLabel = `#${entry.place}`;
     const rankWidth = ctx.measureText(rankLabel).width;
     ctx.fillText(rankLabel, badgeX + (badgeW - rankWidth) / 2, badgeY + 30);
@@ -627,25 +638,25 @@ function drawLeaderboardFrame(
       ctx.fill();
 
       ctx.fillStyle = "#8B4A69";
-      ctx.font = "bold 20px DejaVu Sans";
+      ctx.font = "bold 20px DonutFont";
       const initial = entry.canvasDisplayName.slice(0, 1).toUpperCase();
       const initialWidth = ctx.measureText(initial).width;
       ctx.fillText(initial, avatarX + (avatarSize - initialWidth) / 2, avatarY + 30);
     }
 
     ctx.fillStyle = "#FFF9FC";
-    ctx.font = "bold 24px DejaVu Sans";
+    ctx.font = "bold 24px DonutFont";
     const maxNameWidth = 430;
     const displayName = truncateText(ctx, entry.canvasDisplayName, maxNameWidth);
     ctx.fillText(displayName, avatarX + avatarSize + 18, y + 47);
 
     ctx.fillStyle = colors.count;
-    ctx.font = "bold 28px DejaVu Sans";
+    ctx.font = "bold 28px DonutFont";
     const countText = String(entry.count);
     ctx.fillText(countText, colX.donuts, y + 48);
 
     ctx.fillStyle = "#FFF4F8";
-    ctx.font = "23px DejaVu Sans";
+    ctx.font = "23px DonutFont";
     const maxTitleWidth = 250;
     const tierText = truncateText(ctx, entry.tier, maxTitleWidth);
     ctx.fillText(tierText, colX.title, y + 46);
