@@ -1,0 +1,21 @@
+{
+  "name": "apex-donut-bot",
+  "version": "1.0.0",
+  "description": "Apex donut tracking Discord bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy-commands": "node deploy-commands.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "canvas": "^3.2.2",
+    "discord.js": "^14.25.1",
+    "dotenv": "^17.3.1",
+    "gif-encoder-2": "^1.0.5",
+    "sqlite3": "^6.0.1"
+  }
+}

@@ -1,0 +1,5 @@
+node_modules/
+.env
+donuts.sqlite
+npm-debug.log*
+.DS_Store
