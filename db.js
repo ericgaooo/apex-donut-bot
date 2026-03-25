@@ -1,17 +1,29 @@
-const sqlite3 = require("sqlite3").verbose();
+const fs = require("fs");
+const path = require("path");
 
-const db = new sqlite3.Database("/app/data/donuts.sqlite");
+const DATA_DIR = "/app/data";
+const DB_FILE = path.join(DATA_DIR, "donuts.json");
 
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS donut_counts (
-      user_id TEXT PRIMARY KEY,
-      username TEXT NOT NULL,
-      count INTEGER NOT NULL DEFAULT 0,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-});
+function ensureDataFile() {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+
+  if (!fs.existsSync(DB_FILE)) {
+    fs.writeFileSync(DB_FILE, JSON.stringify({ users: {} }, null, 2), "utf8");
+  }
+}
+
+function readDb() {
+  ensureDataFile();
+  const raw = fs.readFileSync(DB_FILE, "utf8");
+  return JSON.parse(raw);
+}
+
+function writeDb(data) {
+  ensureDataFile();
+  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf8");
+}
 
 function getTierTitle(count) {
   if (count <= 0) return "Unranked Pastry";
@@ -38,107 +50,67 @@ function getTierTitle(count) {
   return "The Chosen Donut";
 }
 
-function getUserCount(userId) {
-  return new Promise((resolve, reject) => {
-    db.get(
-      `SELECT count FROM donut_counts WHERE user_id = ?`,
-      [userId],
-      (err, row) => {
-        if (err) reject(err);
-        else resolve(row ? row.count : 0);
-      }
-    );
-  });
-}
-
 function ensureUser(userId, username) {
-  return new Promise((resolve, reject) => {
-    db.run(
-      `INSERT OR IGNORE INTO donut_counts (user_id, username, count)
-       VALUES (?, ?, 0)`,
-      [userId, username],
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      }
-    );
-  });
+  const db = readDb();
+  if (!db.users[userId]) {
+    db.users[userId] = {
+      user_id: userId,
+      username,
+      count: 0,
+      updated_at: new Date().toISOString(),
+    };
+    writeDb(db);
+  }
 }
 
-function addDonuts(userId, username, amount) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      await ensureUser(userId, username);
-      db.run(
-        `UPDATE donut_counts
-         SET count = count + ?, username = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE user_id = ?`,
-        [amount, username, userId],
-        async (err) => {
-          if (err) {
-            reject(err);
-          } else {
-            const count = await getUserCount(userId);
-            resolve(count);
-          }
-        }
-      );
-    } catch (e) {
-      reject(e);
-    }
-  });
+async function getUserCount(userId) {
+  const db = readDb();
+  return db.users[userId]?.count ?? 0;
 }
 
-function setDonuts(userId, username, amount) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      await ensureUser(userId, username);
-      db.run(
-        `UPDATE donut_counts
-         SET count = ?, username = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE user_id = ?`,
-        [amount, username, userId],
-        (err) => {
-          if (err) reject(err);
-          else resolve(amount);
-        }
-      );
-    } catch (e) {
-      reject(e);
-    }
-  });
+async function addDonuts(userId, username, amount) {
+  ensureUser(userId, username);
+  const db = readDb();
+
+  db.users[userId].count += amount;
+  db.users[userId].username = username;
+  db.users[userId].updated_at = new Date().toISOString();
+
+  writeDb(db);
+  return db.users[userId].count;
 }
 
-function getRank(userId) {
-  return new Promise((resolve, reject) => {
-    db.all(
-      `SELECT user_id, username, count
-       FROM donut_counts
-       ORDER BY count DESC, username ASC`,
-      [],
-      (err, rows) => {
-        if (err) return reject(err);
-        const index = rows.findIndex((r) => r.user_id === userId);
-        resolve(index === -1 ? null : index + 1);
-      }
-    );
-  });
+async function setDonuts(userId, username, amount) {
+  ensureUser(userId, username);
+  const db = readDb();
+
+  db.users[userId].count = amount;
+  db.users[userId].username = username;
+  db.users[userId].updated_at = new Date().toISOString();
+
+  writeDb(db);
+  return db.users[userId].count;
 }
 
-function getLeaderboard() {
-  return new Promise((resolve, reject) => {
-    db.all(
-      `SELECT user_id, username, count
-       FROM donut_counts
-       ORDER BY count DESC, username ASC
-       LIMIT 10`,
-      [],
-      (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-      }
-    );
+async function getRank(userId) {
+  const db = readDb();
+  const rows = Object.values(db.users).sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return a.username.localeCompare(b.username);
   });
+
+  const index = rows.findIndex((r) => r.user_id === userId);
+  return index === -1 ? null : index + 1;
+}
+
+async function getLeaderboard() {
+  const db = readDb();
+  return Object.values(db.users)
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.username.localeCompare(b.username);
+    })
+    .slice(0, 10);
 }
 
 module.exports = {
