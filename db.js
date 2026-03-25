@@ -1,6 +1,6 @@
 const sqlite3 = require("sqlite3").verbose();
 
-const db = new sqlite3.Database("./donuts.sqlite");
+const db = new sqlite3.Database("/var/data/donuts.sqlite");
 
 db.serialize(() => {
   db.run(`
