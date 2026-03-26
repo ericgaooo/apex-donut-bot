@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const DATA_DIR = "/app/data";
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const DB_FILE = path.join(DATA_DIR, "donuts.json");
 
 function ensureDataFile() {
@@ -26,7 +26,7 @@ function writeDb(data) {
 }
 
 function getTierTitle(count) {
-  if (count <= 0) return "Unranked Pastry";
+  if (count <= 0) return "Gluten Free";
   if (count <= 5) return "Donut Rookie";
   if (count <= 10) return "Donut Boy/Girl";
   if (count <= 15) return "Donut Man/Woman";

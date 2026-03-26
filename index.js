@@ -7,17 +7,16 @@ const {
 const { createCanvas, loadImage, registerFont } = require("canvas");
 const GIFEncoder = require("gif-encoder-2");
 
-
 registerFont("./assets/fonts/Nunito-Bold.ttf", {
-    family: "DonutFont",
-    weight: "bold",
-  });
-  
-  registerFont("./assets/fonts/Nunito-Regular.ttf", {
-    family: "DonutFont",
-    weight: "normal",
-  });
-  
+  family: "DonutFont",
+  weight: "bold",
+});
+
+registerFont("./assets/fonts/Nunito-Regular.ttf", {
+  family: "DonutFont",
+  weight: "normal",
+});
+
 const {
   addDonuts,
   setDonuts,
@@ -62,6 +61,35 @@ function buildPromotionMessage(displayName, oldTitle, newTitle, total, rank) {
     `${displayName} has ascended from **${oldTitle}** to **${newTitle}**.\n` +
     `New total: **${total}** donut(s) | Rank: **#${rank}**`
   );
+}
+
+function getRankSystemText() {
+  return [
+    "🍩 **DONUT RANKING SYSTEM** 🍩",
+    "",
+    "**0** — Gluten Free",
+    "**1 - 5** — Donut Rookie",
+    "**6 - 10** — Donut Boy/Girl",
+    "**11 - 15** — Donut Man/Woman",
+    "**16 - 20** — Donut Enjoyer",
+    "**21 - 25** — Donut Specialist",
+    "**26 - 30** — Glazed Apprentice",
+    "**31 - 35** — Frosted Warrior",
+    "**36 - 40** — Sprinkle Soldier",
+    "**41 - 45** — Jelly-Filled Threat",
+    "**46 - 50** — Deep Fried Veteran",
+    "**51 - 55** — Donut Master",
+    "**56 - 60** — Grand Glazer",
+    "**61 - 65** — Supreme Sprinkle Lord",
+    "**66 - 70** — Hole Commander",
+    "**71 - 80** — Bakery General",
+    "**81 - 90** — Mythical Donut Entity",
+    "**91 - 100** — Ascended Pastry Being",
+    "**101 - 110** — Glucose Overlord",
+    "**111 - 120** — Celestial Pastry",
+    "**121 - 130** — Donut Demigod",
+    "**131+** — The Chosen Donut",
+  ].join("\n");
 }
 
 function drawRoundedRect(ctx, x, y, width, height, radius) {
@@ -820,6 +848,11 @@ client.on("interactionCreate", async (interaction) => {
           `${rank ? ` and is ranked **#${rank}**` : ""}.\n` +
           `Title: **${tier}**`
       );
+      return;
+    }
+
+    if (interaction.commandName === "donutranks") {
+      await interaction.reply(getRankSystemText());
       return;
     }
 

@@ -36,6 +36,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName("donutleaderboardanimated")
     .setDescription("Show the animated donut leaderboard with falling sprinkles"),
+
+  new SlashCommandBuilder()
+    .setName("donutranks")
+    .setDescription("Show the full donut ranking system"),
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
