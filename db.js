@@ -10,14 +10,17 @@ function ensureDataFile() {
   }
 
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ users: {} }, null, 2), "utf8");
+    fs.writeFileSync(DB_FILE, JSON.stringify({ users: {}, history: {} }, null, 2), "utf8");
   }
 }
 
 function readDb() {
   ensureDataFile();
   const raw = fs.readFileSync(DB_FILE, "utf8");
-  return JSON.parse(raw);
+  const db = JSON.parse(raw);
+  db.users ??= {};
+  db.history ??= {};
+  return db;
 }
 
 function writeDb(data) {
@@ -75,6 +78,7 @@ async function addDonuts(userId, username, amount) {
   db.users[userId].count += amount;
   db.users[userId].username = username;
   db.users[userId].updated_at = new Date().toISOString();
+  addHistoryPoint(db, userId, db.users[userId].count, "adddonut", db.users[userId].updated_at);
 
   writeDb(db);
   return db.users[userId].count;
@@ -87,9 +91,63 @@ async function setDonuts(userId, username, amount) {
   db.users[userId].count = amount;
   db.users[userId].username = username;
   db.users[userId].updated_at = new Date().toISOString();
+  addHistoryPoint(db, userId, db.users[userId].count, "setdonut", db.users[userId].updated_at);
 
   writeDb(db);
   return db.users[userId].count;
+}
+
+function addHistoryPoint(db, userId, count, source, at = new Date().toISOString()) {
+  db.history ??= {};
+  db.history[userId] ??= [];
+
+  const point = {
+    at,
+    count,
+    source,
+  };
+
+  const existingIndex = db.history[userId].findIndex((entry) => entry.at === at);
+  if (existingIndex === -1) {
+    db.history[userId].push(point);
+  } else {
+    db.history[userId][existingIndex] = point;
+  }
+
+  db.history[userId].sort((a, b) => new Date(a.at) - new Date(b.at));
+}
+
+async function recordUserHistoryPoint(userId, count, source, at = new Date().toISOString()) {
+  const db = readDb();
+  addHistoryPoint(db, userId, count, source, at);
+  writeDb(db);
+  return db.history[userId];
+}
+
+async function replaceUserHistoryFromScan(userId, points) {
+  const db = readDb();
+  db.history ??= {};
+
+  const manualPoints = (db.history[userId] ?? []).filter(
+    (point) => point.source !== "history-scan"
+  );
+
+  const byKey = new Map();
+  for (const point of [...manualPoints, ...points]) {
+    byKey.set(`${point.at}:${point.count}:${point.source}`, point);
+  }
+
+  db.history[userId] = [...byKey.values()].sort(
+    (a, b) => new Date(a.at) - new Date(b.at)
+  );
+
+  writeDb(db);
+  return db.history[userId];
+}
+
+async function getUserHistory(userId) {
+  const db = readDb();
+  return db.history[userId] ?? [];
 }
 
 async function removeUser(userId) {
@@ -148,6 +206,9 @@ module.exports = {
   setDonuts,
   removeUser,
   cleanupUsers,
+  recordUserHistoryPoint,
+  replaceUserHistoryFromScan,
+  getUserHistory,
   getUserCount,
   getRank,
   getLeaderboard,

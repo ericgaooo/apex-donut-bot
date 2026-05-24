@@ -1,5 +1,5 @@
 require("dotenv").config();
-const { REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { ChannelType, REST, Routes, SlashCommandBuilder } = require("discord.js");
 
 const commands = [
   new SlashCommandBuilder()
@@ -73,6 +73,35 @@ const commands = [
     .setDescription("Show off a user's donut status with maximum pastry drama")
     .addUserOption(option =>
       option.setName("user").setDescription("User to flex").setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("donutprofile")
+    .setDescription("Show a user's donut profile card with a history graph")
+    .addUserOption(option =>
+      option.setName("user").setDescription("User to profile").setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("donuthistoryscan")
+    .setDescription("Scan a channel for a user's old donut totals and build profile history")
+    .addChannelOption(option =>
+      option
+        .setName("channel")
+        .setDescription("Channel to scan")
+        .addChannelTypes(ChannelType.GuildText)
+        .setRequired(true)
+    )
+    .addUserOption(option =>
+      option.setName("user").setDescription("User to build history for").setRequired(true)
+    )
+    .addIntegerOption(option =>
+      option
+        .setName("limit")
+        .setDescription("Messages to scan, newest first. Default 1000, max 3000")
+        .setMinValue(100)
+        .setMaxValue(3000)
+        .setRequired(false)
     ),
 ].map(command => command.toJSON());
 

@@ -22,6 +22,8 @@ const {
   setDonuts,
   removeUser,
   cleanupUsers,
+  replaceUserHistoryFromScan,
+  getUserHistory,
   getUserCount,
   getRank,
   getLeaderboard,
@@ -99,6 +101,176 @@ function getFlexMessage(displayName, total, rank, tier) {
   }
 
   return lines.join("\n");
+}
+
+const TIER_LIMITS = [
+  { max: 0, title: "Gluten Free" },
+  { max: 5, title: "Donut Rookie" },
+  { max: 10, title: "Donut Boy/Girl" },
+  { max: 15, title: "Donut Man/Woman" },
+  { max: 20, title: "Donut Enjoyer" },
+  { max: 25, title: "Donut Specialist" },
+  { max: 30, title: "Glazed Apprentice" },
+  { max: 35, title: "Frosted Warrior" },
+  { max: 40, title: "Sprinkle Soldier" },
+  { max: 45, title: "Jelly-Filled Threat" },
+  { max: 50, title: "Deep Fried Veteran" },
+  { max: 55, title: "Donut Master" },
+  { max: 60, title: "Grand Glazer" },
+  { max: 65, title: "Supreme Sprinkle Lord" },
+  { max: 70, title: "Hole Commander" },
+  { max: 80, title: "Bakery General" },
+  { max: 90, title: "Mythical Donut Entity" },
+  { max: 100, title: "Ascended Pastry Being" },
+  { max: 110, title: "Glucose Overlord" },
+  { max: 120, title: "Celestial Pastry" },
+  { max: 130, title: "Donut Demigod" },
+];
+
+function getNextTierProgress(count) {
+  const previousLimit = TIER_LIMITS.findLast((tier) => count > tier.max)?.max ?? 0;
+  const nextTier = TIER_LIMITS.find((tier) => count < tier.max);
+
+  if (!nextTier) {
+    return {
+      label: "Max glaze achieved",
+      ratio: 1,
+      remaining: 0,
+    };
+  }
+
+  const span = Math.max(1, nextTier.max - previousLimit);
+  const progress = Math.max(0, count - previousLimit);
+
+  return {
+    label: `Next: ${nextTier.title}`,
+    ratio: Math.min(1, progress / span),
+    remaining: nextTier.max - count,
+  };
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeMessageText(value) {
+  return value
+    .replace(/[*_~`|]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function makeUserAliases(user, displayName) {
+  return [
+    `<@${user.id}>`,
+    `<@!${user.id}>`,
+    displayName,
+    user.globalName,
+    user.username,
+  ]
+    .filter(Boolean)
+    .map((alias) => normalizeMessageText(alias))
+    .filter((alias, index, aliases) => alias.length >= 2 && aliases.indexOf(alias) === index);
+}
+
+function parseDonutCountFromMessage(content, aliases) {
+  const text = normalizeMessageText(content);
+  if (!text) return null;
+
+  const mentionedAlias = aliases.find((alias) =>
+    text.toLowerCase().includes(alias.toLowerCase())
+  );
+  if (!mentionedAlias) return null;
+
+  const aliasPattern = escapeRegex(mentionedAlias);
+  const patterns = [
+    new RegExp(
+      `${aliasPattern}.{0,120}(?:now has|has|donut total(?: is)? now|total(?: is)? now|new total:?|updated to|set to)\\D{0,24}(\\d{1,5})`,
+      "i"
+    ),
+    new RegExp(
+      `(?:now has|has|donut total(?: is)? now|total(?: is)? now|new total:?|updated to|set to)\\D{0,24}(\\d{1,5}).{0,120}${aliasPattern}`,
+      "i"
+    ),
+    /(?:now has|new total:?|donut total(?: is)? now|total(?: is)? now)\D{0,24}(\d{1,5})/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+
+    const count = Number.parseInt(match[1], 10);
+    if (Number.isFinite(count) && count >= 0) return count;
+  }
+
+  return null;
+}
+
+async function fetchRecentMessages(channel, limit) {
+  const messages = [];
+  let before;
+
+  while (messages.length < limit) {
+    const batchSize = Math.min(100, limit - messages.length);
+    const batch = await channel.messages.fetch({
+      limit: batchSize,
+      ...(before ? { before } : {}),
+    });
+
+    if (batch.size === 0) break;
+
+    messages.push(...batch.values());
+    before = batch.last().id;
+  }
+
+  return messages;
+}
+
+async function scanDonutHistory(channel, user, displayName, limit) {
+  const aliases = makeUserAliases(user, displayName);
+  const messages = await fetchRecentMessages(channel, limit);
+  const points = [];
+
+  for (const message of messages) {
+    const count = parseDonutCountFromMessage(message.content, aliases);
+    if (count === null) continue;
+
+    points.push({
+      at: message.createdAt.toISOString(),
+      count,
+      source: "history-scan",
+    });
+  }
+
+  const byTimestamp = new Map();
+  for (const point of points) {
+    byTimestamp.set(point.at, point);
+  }
+
+  return [...byTimestamp.values()].sort((a, b) => new Date(a.at) - new Date(b.at));
+}
+
+function calculateDonutRate(history) {
+  if (history.length < 2) return null;
+
+  const first = history[0];
+  const last = history[history.length - 1];
+  const days = (new Date(last.at) - new Date(first.at)) / 86400000;
+  const gained = last.count - first.count;
+
+  if (days <= 0) return null;
+
+  return {
+    gained,
+    days,
+    perDay: gained / days,
+    perWeek: (gained / days) * 7,
+  };
+}
+
+function formatDonutRate(rate) {
+  if (!rate) return "Not enough history yet";
+  return `${rate.perWeek.toFixed(2)} / week`;
 }
 
 function getRankSystemText() {
@@ -806,6 +978,209 @@ async function generateAnimatedLeaderboardGif(rows, guild) {
   return encoder.out.getData();
 }
 
+function drawProfileStat(ctx, label, value, x, y, width) {
+  drawRoundedRect(ctx, x, y, width, 92, 20);
+  ctx.fillStyle = "rgba(255, 249, 252, 0.76)";
+  ctx.fill();
+
+  ctx.fillStyle = "#9B5E7C";
+  ctx.font = "bold 16px DonutFont";
+  ctx.fillText(label, x + 20, y + 30);
+
+  ctx.fillStyle = "#7A2F57";
+  ctx.font = "bold 30px DonutFont";
+  ctx.fillText(truncateText(ctx, value, width - 40), x + 20, y + 66);
+}
+
+function drawProfileGraph(ctx, history, x, y, width, height) {
+  drawRoundedRect(ctx, x, y, width, height, 24);
+  ctx.fillStyle = "rgba(255, 249, 252, 0.78)";
+  ctx.fill();
+
+  ctx.fillStyle = "#7A2F57";
+  ctx.font = "bold 24px DonutFont";
+  ctx.fillText("DONUT MOMENTUM", x + 26, y + 42);
+
+  const graphX = x + 54;
+  const graphY = y + 76;
+  const graphW = width - 92;
+  const graphH = height - 126;
+
+  ctx.strokeStyle = "rgba(122, 47, 87, 0.16)";
+  ctx.lineWidth = 2;
+  for (let i = 0; i <= 4; i++) {
+    const gy = graphY + (graphH / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(graphX, gy);
+    ctx.lineTo(graphX + graphW, gy);
+    ctx.stroke();
+  }
+
+  if (history.length === 0) {
+    ctx.fillStyle = "#9B5E7C";
+    ctx.font = "bold 22px DonutFont";
+    ctx.fillText("No history scanned yet", graphX + 170, graphY + graphH / 2);
+    return;
+  }
+
+  const counts = history.map((point) => point.count);
+  const minCount = Math.min(...counts);
+  const maxCount = Math.max(...counts);
+  const countSpan = Math.max(1, maxCount - minCount);
+  const firstTime = new Date(history[0].at).getTime();
+  const lastTime = new Date(history[history.length - 1].at).getTime();
+  const timeSpan = Math.max(1, lastTime - firstTime);
+
+  const points = history.map((point) => {
+    const t = new Date(point.at).getTime();
+    return {
+      x: graphX + ((t - firstTime) / timeSpan) * graphW,
+      y: graphY + graphH - ((point.count - minCount) / countSpan) * graphH,
+      count: point.count,
+    };
+  });
+
+  ctx.strokeStyle = "#FFD166";
+  ctx.lineWidth = 11;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  for (let i = 0; i < points.length; i++) {
+    if (i === 0) ctx.moveTo(points[i].x, points[i].y);
+    else ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.stroke();
+
+  ctx.strokeStyle = "#E84D93";
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  for (let i = 0; i < points.length; i++) {
+    if (i === 0) ctx.moveTo(points[i].x, points[i].y);
+    else ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.stroke();
+
+  for (const point of points) {
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 7, 0, Math.PI * 2);
+    ctx.fillStyle = "#FFF9FC";
+    ctx.fill();
+    ctx.strokeStyle = "#E84D93";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "#9B5E7C";
+  ctx.font = "bold 15px DonutFont";
+  ctx.fillText(String(maxCount), graphX, graphY - 12);
+  ctx.fillText(String(minCount), graphX, graphY + graphH + 24);
+
+  const startDate = new Date(history[0].at).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  const endDate = new Date(history[history.length - 1].at).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  ctx.fillText(startDate, graphX, y + height - 24);
+  ctx.fillText(endDate, graphX + graphW - ctx.measureText(endDate).width, y + height - 24);
+}
+
+async function generateDonutProfileImage(user, displayName, total, rank, tier, history) {
+  const width = 1280;
+  const height = 720;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+
+  const backSprinkles = createSprinkles(width, height, 110, "back");
+  const frontSprinkles = createSprinkles(width, height, 130, "front");
+  const bubbles = createDonutBubbles(width, height, 22);
+  const sparkles = createSparkles(width, height, 28);
+  drawBackground(ctx, width, height, backSprinkles, frontSprinkles, bubbles, sparkles, null, 4);
+
+  drawRoundedRect(ctx, 40, 40, width - 80, height - 80, 34);
+  ctx.fillStyle = "rgba(255, 244, 248, 0.74)";
+  ctx.fill();
+
+  const avatarUrl = user.displayAvatarURL({
+    extension: "png",
+    size: 256,
+    forceStatic: true,
+  });
+
+  let avatarImage = null;
+  try {
+    avatarImage = await loadImage(avatarUrl);
+  } catch {
+    avatarImage = null;
+  }
+
+  if (avatarImage) {
+    drawCircleImage(ctx, avatarImage, 84, 84, 150);
+  }
+
+  ctx.beginPath();
+  ctx.arc(159, 159, 80, 0, Math.PI * 2);
+  ctx.strokeStyle = "#FFD166";
+  ctx.lineWidth = 8;
+  ctx.stroke();
+
+  ctx.fillStyle = "#7A2F57";
+  ctx.font = "bold 52px DonutFont";
+  ctx.fillText(truncateText(ctx, sanitizeDisplayNameForCanvas(displayName), 650), 270, 125);
+
+  ctx.fillStyle = "#9B5E7C";
+  ctx.font = "bold 24px DonutFont";
+  ctx.fillText(tier, 274, 166);
+
+  ctx.fillStyle = "#E84D93";
+  ctx.font = "bold 72px DonutFont";
+  ctx.fillText(`${total}`, 274, 238);
+
+  ctx.fillStyle = "#7A2F57";
+  ctx.font = "bold 28px DonutFont";
+  ctx.fillText("donuts banked", 274 + ctx.measureText(`${total}`).width + 18, 225);
+
+  const rate = calculateDonutRate(history);
+  drawProfileStat(ctx, "RANK", rank ? `#${rank}` : "Unranked", 84, 292, 232);
+  drawProfileStat(ctx, "RATE", formatDonutRate(rate), 338, 292, 294);
+  drawProfileStat(ctx, "HISTORY", `${history.length} points`, 654, 292, 246);
+
+  const progress = getNextTierProgress(total);
+  drawRoundedRect(ctx, 84, 420, 816, 112, 22);
+  ctx.fillStyle = "rgba(255, 249, 252, 0.76)";
+  ctx.fill();
+  ctx.fillStyle = "#9B5E7C";
+  ctx.font = "bold 17px DonutFont";
+  ctx.fillText(progress.label, 110, 456);
+  ctx.fillStyle = "#7A2F57";
+  ctx.font = "bold 25px DonutFont";
+  ctx.fillText(
+    progress.remaining === 0 ? "Legendary pastry orbit" : `${progress.remaining} donut(s) away`,
+    110,
+    494
+  );
+
+  drawRoundedRect(ctx, 110, 508, 742, 18, 9);
+  ctx.fillStyle = "rgba(122, 47, 87, 0.14)";
+  ctx.fill();
+  drawRoundedRect(ctx, 110, 508, 742 * progress.ratio, 18, 9);
+  ctx.fillStyle = "#FFD166";
+  ctx.fill();
+
+  drawProfileGraph(ctx, history, 930, 84, 270, 448);
+
+  const footer = rate
+    ? `Scanned span: ${rate.days.toFixed(1)} days | Net gain: ${rate.gained}`
+    : "Run /donuthistoryscan to build a real timeline from old channel messages";
+  ctx.fillStyle = "#9B5E7C";
+  ctx.font = "bold 20px DonutFont";
+  ctx.fillText(truncateText(ctx, footer, width - 180), 84, 610);
+
+  return canvas.toBuffer("image/png");
+}
+
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -974,6 +1349,87 @@ client.on("interactionCreate", async (interaction) => {
       const tier = getTierTitle(total);
 
       await interaction.reply(getFlexMessage(displayName, total, rank, tier));
+      return;
+    }
+
+    if (interaction.commandName === "donuthistoryscan") {
+      const channel = interaction.options.getChannel("channel");
+      const user = interaction.options.getUser("user");
+      const limit = interaction.options.getInteger("limit") ?? 1000;
+      const displayName = await getServerDisplayName(interaction, user);
+
+      if (!channel?.messages?.fetch) {
+        await interaction.reply({
+          content: "That channel does not expose message history to this bot.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      await interaction.deferReply();
+
+      const points = await scanDonutHistory(channel, user, displayName, limit);
+      const history = await replaceUserHistoryFromScan(user.id, points);
+
+      const preview = points
+        .slice(-5)
+        .map((point) => {
+          const date = new Date(point.at).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          });
+          return `• ${date}: ${point.count}`;
+        })
+        .join("\n");
+
+      await interaction.editReply(
+        `📈 Scanned **${limit}** message(s) in ${channel} for **${displayName}**.\n` +
+          `Found **${points.length}** donut history point(s). Stored timeline now has **${history.length}** point(s).\n` +
+          `${preview ? `\nLatest matches:\n${preview}` : "\nNo matches found. Try a bigger limit or a channel with the old donut messages."}`
+      );
+      return;
+    }
+
+    if (interaction.commandName === "donutprofile") {
+      const user = interaction.options.getUser("user") ?? interaction.user;
+      const displayName = await getServerDisplayName(interaction, user);
+
+      await interaction.deferReply();
+
+      const total = await getUserCount(user.id);
+      const rank = await getRank(user.id);
+      const tier = getTierTitle(total);
+      const storedHistory = await getUserHistory(user.id);
+      const history = [...storedHistory];
+
+      if (
+        history.length === 0 ||
+        history[history.length - 1].count !== total
+      ) {
+        history.push({
+          at: new Date().toISOString(),
+          count: total,
+          source: "current",
+        });
+      }
+
+      const imageBuffer = await generateDonutProfileImage(
+        user,
+        displayName,
+        total,
+        rank,
+        tier,
+        history
+      );
+      const attachment = new AttachmentBuilder(imageBuffer, {
+        name: "donut-profile.png",
+      });
+
+      await interaction.editReply({
+        content: `🍩 **${displayName}'s donut profile**`,
+        files: [attachment],
+      });
       return;
     }
 
