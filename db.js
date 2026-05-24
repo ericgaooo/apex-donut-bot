@@ -92,6 +92,31 @@ async function setDonuts(userId, username, amount) {
   return db.users[userId].count;
 }
 
+async function removeUser(userId) {
+  const db = readDb();
+  const user = db.users[userId] ?? null;
+
+  if (!user) return null;
+
+  delete db.users[userId];
+  writeDb(db);
+  return user;
+}
+
+async function cleanupUsers(predicate, commit = false) {
+  const db = readDb();
+  const removed = Object.values(db.users).filter(predicate);
+
+  if (commit && removed.length > 0) {
+    for (const user of removed) {
+      delete db.users[user.user_id];
+    }
+    writeDb(db);
+  }
+
+  return removed;
+}
+
 async function getRank(userId) {
   const db = readDb();
   const rows = Object.values(db.users).sort((a, b) => {
@@ -113,11 +138,19 @@ async function getLeaderboard() {
     .slice(0, 10);
 }
 
+async function getAllUsers() {
+  const db = readDb();
+  return Object.values(db.users);
+}
+
 module.exports = {
   addDonuts,
   setDonuts,
+  removeUser,
+  cleanupUsers,
   getUserCount,
   getRank,
   getLeaderboard,
+  getAllUsers,
   getTierTitle,
 };

@@ -3,6 +3,7 @@ const {
   Client,
   GatewayIntentBits,
   AttachmentBuilder,
+  PermissionFlagsBits,
 } = require("discord.js");
 const { createCanvas, loadImage, registerFont } = require("canvas");
 const GIFEncoder = require("gif-encoder-2");
@@ -20,9 +21,12 @@ registerFont("./assets/fonts/Nunito-Regular.ttf", {
 const {
   addDonuts,
   setDonuts,
+  removeUser,
+  cleanupUsers,
   getUserCount,
   getRank,
   getLeaderboard,
+  getAllUsers,
   getTierTitle,
 } = require("./db");
 
@@ -55,12 +59,51 @@ async function getActorDisplayName(interaction) {
   }
 }
 
+function canManageDonuts(interaction) {
+  return interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+}
+
 function buildPromotionMessage(displayName, oldTitle, newTitle, total, rank) {
   return (
     `⚠️ **PROMOTION RECORDED** ⚠️\n` +
     `${displayName} has ascended from **${oldTitle}** to **${newTitle}**.\n` +
     `New total: **${total}** donut(s) | Rank: **#${rank}**`
   );
+}
+
+function formatUserList(users, limit = 8) {
+  if (users.length === 0) return "Nobody matched.";
+
+  const shown = users
+    .slice(0, limit)
+    .map((user) => `• ${user.username} — ${user.count} donut(s)`)
+    .join("\n");
+
+  if (users.length <= limit) return shown;
+  return `${shown}\n…and ${users.length - limit} more.`;
+}
+
+function getFlexMessage(displayName, total, rank, tier) {
+  const lines = [
+    "✨🍩 **DONUT FLEX DETECTED** 🍩✨",
+    `**${displayName}** just stepped onto the pastry stage.`,
+    `Donuts: **${total}** | Rank: **${rank ? `#${rank}` : "Unranked"}**`,
+    `Title: **${tier}**`,
+  ];
+
+  if (total === 0) {
+    lines.push("Status: flour on the apron, zero glaze in the vault.");
+  } else if (rank === 1) {
+    lines.push("Status: wearing the frosting crown like it was custom made.");
+  } else if (rank && rank <= 3) {
+    lines.push("Status: podium energy, sprinkle pressure rising.");
+  } else if (total >= 50) {
+    lines.push("Status: certified bakery menace.");
+  } else {
+    lines.push("Status: respectable glaze levels, room for chaos.");
+  }
+
+  return lines.join("\n");
 }
 
 function getRankSystemText() {
@@ -835,6 +878,98 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
+    if (interaction.commandName === "removedonutuser") {
+      if (!canManageDonuts(interaction)) {
+        await interaction.reply({
+          content: "You need Manage Server permission to remove donut users.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const user = interaction.options.getUser("user");
+      const displayName = await getServerDisplayName(interaction, user);
+      const removed = await removeUser(user.id);
+
+      if (!removed) {
+        await interaction.reply({
+          content: `🍩 ${displayName} was not being tracked.`,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      await interaction.reply(
+        `🧹 Removed **${displayName}** from donut tracking.\n` +
+          `They had **${removed.count}** donut(s) and the title **${getTierTitle(removed.count)}**.`
+      );
+      return;
+    }
+
+    if (interaction.commandName === "donutcleanup") {
+      if (!canManageDonuts(interaction)) {
+        await interaction.reply({
+          content: "You need Manage Server permission to run donut cleanup.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const target = interaction.options.getString("target");
+      const run = interaction.options.getBoolean("run") ?? false;
+      let matched = [];
+      let label = "";
+
+      if (target === "zero") {
+        label = "zero-count users";
+        matched = await cleanupUsers((user) => user.count <= 0, run);
+      } else if (target === "missing") {
+        label = "users no longer in this server";
+        await interaction.deferReply({ ephemeral: !run });
+
+        const trackedUsers = await getAllUsers();
+        const missingIds = new Set();
+
+        for (const trackedUser of trackedUsers) {
+          try {
+            await interaction.guild.members.fetch(trackedUser.user_id);
+          } catch (err) {
+            if (err.code === 10007 || err.status === 404) {
+              missingIds.add(trackedUser.user_id);
+            } else {
+              throw err;
+            }
+          }
+        }
+
+        matched = await cleanupUsers((user) => missingIds.has(user.user_id), run);
+
+        await interaction.editReply(
+          `🧹 **Cleanup ${run ? "complete" : "preview"}:** ${label}\n` +
+            `Matched: **${matched.length}**\n` +
+            `${run ? "Removed" : "Would remove"}:\n${formatUserList(matched)}\n\n` +
+            `${run ? "" : "Run again with `run: True` to remove them."}`
+        );
+        return;
+      } else {
+        await interaction.reply({
+          content: "Unknown cleanup target.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      await interaction.reply({
+        content:
+          `🧹 **Cleanup ${run ? "complete" : "preview"}:** ${label}\n` +
+          `Matched: **${matched.length}**\n` +
+          `${run ? "Removed" : "Would remove"}:\n${formatUserList(matched)}\n\n` +
+          `${run ? "" : "Run again with `run: True` to remove them."}`,
+        ephemeral: !run,
+      });
+      return;
+    }
+
     if (interaction.commandName === "donutcount") {
       const user = interaction.options.getUser("user");
       const displayName = await getServerDisplayName(interaction, user);
@@ -848,6 +983,18 @@ client.on("interactionCreate", async (interaction) => {
           `${rank ? ` and is ranked **#${rank}**` : ""}.\n` +
           `Title: **${tier}**`
       );
+      return;
+    }
+
+    if (interaction.commandName === "donutflex") {
+      const user = interaction.options.getUser("user") ?? interaction.user;
+      const displayName = await getServerDisplayName(interaction, user);
+
+      const total = await getUserCount(user.id);
+      const rank = await getRank(user.id);
+      const tier = getTierTitle(total);
+
+      await interaction.reply(getFlexMessage(displayName, total, rank, tier));
       return;
     }
 

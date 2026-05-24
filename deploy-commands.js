@@ -1,5 +1,5 @@
 require("dotenv").config();
-const { REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { PermissionFlagsBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
 
 const commands = [
   new SlashCommandBuilder()
@@ -23,6 +23,35 @@ const commands = [
     ),
 
   new SlashCommandBuilder()
+    .setName("removedonutuser")
+    .setDescription("Remove a user from donut tracking")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addUserOption(option =>
+      option.setName("user").setDescription("User to remove").setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("donutcleanup")
+    .setDescription("Preview or run donut leaderboard cleanup")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addStringOption(option =>
+      option
+        .setName("target")
+        .setDescription("What to clean up")
+        .setRequired(true)
+        .addChoices(
+          { name: "Zero-count users", value: "zero" },
+          { name: "Users no longer in this server", value: "missing" }
+        )
+    )
+    .addBooleanOption(option =>
+      option
+        .setName("run")
+        .setDescription("Actually remove the matched users instead of previewing")
+        .setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
     .setName("donutcount")
     .setDescription("Show a user's donut count")
     .addUserOption(option =>
@@ -40,6 +69,13 @@ const commands = [
   new SlashCommandBuilder()
     .setName("donutranks")
     .setDescription("Show the full donut ranking system"),
+
+  new SlashCommandBuilder()
+    .setName("donutflex")
+    .setDescription("Show off a user's donut status with maximum pastry drama")
+    .addUserOption(option =>
+      option.setName("user").setDescription("User to flex").setRequired(false)
+    ),
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
