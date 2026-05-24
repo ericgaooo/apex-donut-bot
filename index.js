@@ -1096,18 +1096,47 @@ async function generateAnimatedLeaderboardGif(rows, guild) {
   return encoder.out.getData();
 }
 
-function drawProfileStat(ctx, label, value, x, y, width) {
-  drawRoundedRect(ctx, x, y, width, 92, 20);
+function drawTextFit(ctx, text, x, y, maxWidth, font, color, minSize = 18) {
+  const match = font.match(/^(.+?)(\d+)px(.+)$/);
+  if (!match) {
+    ctx.font = font;
+    ctx.fillStyle = color;
+    ctx.fillText(truncateText(ctx, text, maxWidth), x, y);
+    return;
+  }
+
+  const [, prefix, sizeText, suffix] = match;
+  let size = Number.parseInt(sizeText, 10);
+
+  while (size > minSize) {
+    ctx.font = `${prefix}${size}px${suffix}`;
+    if (ctx.measureText(text).width <= maxWidth) break;
+    size -= 2;
+  }
+
+  ctx.fillStyle = color;
+  ctx.fillText(truncateText(ctx, text, maxWidth), x, y);
+}
+
+function drawProfileStat(ctx, label, value, x, y, width, height = 92) {
+  drawRoundedRect(ctx, x, y, width, height, 18);
   ctx.fillStyle = "rgba(255, 249, 252, 0.76)";
   ctx.fill();
 
   ctx.fillStyle = "#9B5E7C";
   ctx.font = "bold 16px DonutFont";
-  ctx.fillText(label, x + 20, y + 30);
+  ctx.fillText(label, x + 18, y + 28);
 
-  ctx.fillStyle = "#7A2F57";
-  ctx.font = "bold 30px DonutFont";
-  ctx.fillText(truncateText(ctx, value, width - 40), x + 20, y + 66);
+  drawTextFit(
+    ctx,
+    value,
+    x + 18,
+    y + height - 26,
+    width - 36,
+    "bold 30px DonutFont",
+    "#7A2F57",
+    20
+  );
 }
 
 function drawProfileGraph(ctx, history, x, y, width, height) {
@@ -1115,14 +1144,21 @@ function drawProfileGraph(ctx, history, x, y, width, height) {
   ctx.fillStyle = "rgba(255, 249, 252, 0.78)";
   ctx.fill();
 
-  ctx.fillStyle = "#7A2F57";
-  ctx.font = "bold 24px DonutFont";
-  ctx.fillText("DONUT MOMENTUM", x + 26, y + 42);
+  drawTextFit(
+    ctx,
+    "DONUT MOMENTUM",
+    x + 26,
+    y + 42,
+    width - 52,
+    "bold 24px DonutFont",
+    "#7A2F57",
+    18
+  );
 
-  const graphX = x + 54;
+  const graphX = x + 58;
   const graphY = y + 76;
-  const graphW = width - 92;
-  const graphH = height - 126;
+  const graphW = width - 108;
+  const graphH = height - 136;
 
   ctx.strokeStyle = "rgba(122, 47, 87, 0.16)";
   ctx.lineWidth = 2;
@@ -1135,9 +1171,16 @@ function drawProfileGraph(ctx, history, x, y, width, height) {
   }
 
   if (history.length === 0) {
-    ctx.fillStyle = "#9B5E7C";
-    ctx.font = "bold 22px DonutFont";
-    ctx.fillText("No history scanned yet", graphX + 170, graphY + graphH / 2);
+    drawTextFit(
+      ctx,
+      "No history scanned yet",
+      graphX + 24,
+      graphY + graphH / 2,
+      graphW - 48,
+      "bold 22px DonutFont",
+      "#9B5E7C",
+      16
+    );
     return;
   }
 
@@ -1190,8 +1233,8 @@ function drawProfileGraph(ctx, history, x, y, width, height) {
 
   ctx.fillStyle = "#9B5E7C";
   ctx.font = "bold 15px DonutFont";
-  ctx.fillText(String(maxCount), graphX, graphY - 12);
-  ctx.fillText(String(minCount), graphX, graphY + graphH + 24);
+  ctx.fillText(String(maxCount), x + 24, graphY + 6);
+  ctx.fillText(String(minCount), x + 24, graphY + graphH);
 
   const startDate = new Date(history[0].at).toLocaleDateString("en-US", {
     month: "short",
@@ -1206,8 +1249,8 @@ function drawProfileGraph(ctx, history, x, y, width, height) {
 }
 
 async function generateDonutProfileImage(user, displayName, total, rank, tier, history) {
-  const width = 1280;
-  const height = 720;
+  const width = 1400;
+  const height = 780;
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
 
@@ -1234,67 +1277,110 @@ async function generateDonutProfileImage(user, displayName, total, rank, tier, h
     avatarImage = null;
   }
 
+  const leftX = 84;
+  const leftW = 800;
+  const rightX = 920;
+  const rightW = 396;
+  const avatarX = leftX;
+  const avatarY = 86;
+  const avatarSize = 152;
+
   if (avatarImage) {
-    drawCircleImage(ctx, avatarImage, 84, 84, 150);
+    drawCircleImage(ctx, avatarImage, avatarX, avatarY, avatarSize);
+  } else {
+    ctx.beginPath();
+    ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
+    ctx.fillStyle = "#FCE7F1";
+    ctx.fill();
+
+    ctx.fillStyle = "#8B4A69";
+    ctx.font = "bold 56px DonutFont";
+    const initial = sanitizeDisplayNameForCanvas(displayName).slice(0, 1).toUpperCase();
+    const initialWidth = ctx.measureText(initial).width;
+    ctx.fillText(
+      initial,
+      avatarX + (avatarSize - initialWidth) / 2,
+      avatarY + avatarSize / 2 + 20
+    );
   }
 
   ctx.beginPath();
-  ctx.arc(159, 159, 80, 0, Math.PI * 2);
+  ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2 + 5, 0, Math.PI * 2);
   ctx.strokeStyle = "#FFD166";
   ctx.lineWidth = 8;
   ctx.stroke();
 
-  ctx.fillStyle = "#7A2F57";
-  ctx.font = "bold 52px DonutFont";
-  ctx.fillText(truncateText(ctx, sanitizeDisplayNameForCanvas(displayName), 650), 270, 125);
+  const titleX = avatarX + avatarSize + 34;
+  drawTextFit(
+    ctx,
+    sanitizeDisplayNameForCanvas(displayName),
+    titleX,
+    128,
+    leftX + leftW - titleX,
+    "bold 54px DonutFont",
+    "#7A2F57",
+    30
+  );
 
-  ctx.fillStyle = "#9B5E7C";
+  drawTextFit(
+    ctx,
+    tier,
+    titleX,
+    170,
+    leftX + leftW - titleX,
+    "bold 25px DonutFont",
+    "#9B5E7C",
+    18
+  );
+
+  drawRoundedRect(ctx, titleX, 194, 372, 82, 22);
+  ctx.fillStyle = "rgba(255, 249, 252, 0.82)";
+  ctx.fill();
+
+  drawTextFit(ctx, `${total}`, titleX + 24, 252, 150, "bold 66px DonutFont", "#E84D93", 36);
+  ctx.fillStyle = "#7A2F57";
   ctx.font = "bold 24px DonutFont";
-  ctx.fillText(tier, 274, 166);
-
-  ctx.fillStyle = "#E84D93";
-  ctx.font = "bold 72px DonutFont";
-  ctx.fillText(`${total}`, 274, 238);
-
-  ctx.fillStyle = "#7A2F57";
-  ctx.font = "bold 28px DonutFont";
-  ctx.fillText("donuts banked", 274 + ctx.measureText(`${total}`).width + 18, 225);
+  ctx.fillText("donuts banked", titleX + 190, 244);
 
   const rate = calculateDonutRate(history);
-  drawProfileStat(ctx, "RANK", rank ? `#${rank}` : "Unranked", 84, 292, 232);
-  drawProfileStat(ctx, "RATE", formatDonutRate(rate), 338, 292, 294);
-  drawProfileStat(ctx, "HISTORY", `${history.length} points`, 654, 292, 246);
+  drawProfileStat(ctx, "RANK", rank ? `#${rank}` : "Unranked", leftX, 322, 206);
+  drawProfileStat(ctx, "RATE", formatDonutRate(rate), leftX + 230, 322, 274);
+  drawProfileStat(ctx, "HISTORY", `${history.length} points`, leftX + 528, 322, 252);
 
   const progress = getNextTierProgress(total);
-  drawRoundedRect(ctx, 84, 420, 816, 112, 22);
+  drawRoundedRect(ctx, leftX, 452, leftW, 132, 22);
   ctx.fillStyle = "rgba(255, 249, 252, 0.76)";
   ctx.fill();
   ctx.fillStyle = "#9B5E7C";
   ctx.font = "bold 17px DonutFont";
-  ctx.fillText(progress.label, 110, 456);
-  ctx.fillStyle = "#7A2F57";
-  ctx.font = "bold 25px DonutFont";
-  ctx.fillText(
+  ctx.fillText(progress.label, leftX + 26, 490);
+  drawTextFit(
+    ctx,
     progress.remaining === 0 ? "Legendary pastry orbit" : `${progress.remaining} donut(s) away`,
-    110,
-    494
+    leftX + 26,
+    530,
+    leftW - 52,
+    "bold 28px DonutFont",
+    "#7A2F57",
+    20
   );
 
-  drawRoundedRect(ctx, 110, 508, 742, 18, 9);
+  drawRoundedRect(ctx, leftX + 26, 548, leftW - 52, 20, 10);
   ctx.fillStyle = "rgba(122, 47, 87, 0.14)";
   ctx.fill();
-  drawRoundedRect(ctx, 110, 508, 742 * progress.ratio, 18, 9);
+  drawRoundedRect(ctx, leftX + 26, 548, (leftW - 52) * progress.ratio, 20, 10);
   ctx.fillStyle = "#FFD166";
   ctx.fill();
 
-  drawProfileGraph(ctx, history, 930, 84, 270, 448);
+  drawProfileGraph(ctx, history, rightX, 86, rightW, 498);
 
   const footer = rate
     ? `Scanned span: ${rate.days.toFixed(1)} days | Net gain: ${rate.gained}`
     : "Run /donuthistoryscan to build a real timeline from old channel messages";
-  ctx.fillStyle = "#9B5E7C";
-  ctx.font = "bold 20px DonutFont";
-  ctx.fillText(truncateText(ctx, footer, width - 180), 84, 610);
+  drawRoundedRect(ctx, leftX, 622, width - 168, 76, 20);
+  ctx.fillStyle = "rgba(255, 249, 252, 0.66)";
+  ctx.fill();
+  drawTextFit(ctx, footer, leftX + 26, 668, width - 220, "bold 22px DonutFont", "#9B5E7C", 16);
 
   return canvas.toBuffer("image/png");
 }
