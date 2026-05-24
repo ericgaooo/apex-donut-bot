@@ -3,7 +3,6 @@ const {
   Client,
   GatewayIntentBits,
   AttachmentBuilder,
-  PermissionFlagsBits,
 } = require("discord.js");
 const { createCanvas, loadImage, registerFont } = require("canvas");
 const GIFEncoder = require("gif-encoder-2");
@@ -57,10 +56,6 @@ async function getActorDisplayName(interaction) {
   } catch {
     return interaction.user.globalName || interaction.user.username;
   }
-}
-
-function canManageDonuts(interaction) {
-  return interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
 }
 
 function buildPromotionMessage(displayName, oldTitle, newTitle, total, rank) {
@@ -879,14 +874,6 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "removedonutuser") {
-      if (!canManageDonuts(interaction)) {
-        await interaction.reply({
-          content: "You need Manage Server permission to remove donut users.",
-          ephemeral: true,
-        });
-        return;
-      }
-
       const user = interaction.options.getUser("user");
       const displayName = await getServerDisplayName(interaction, user);
       const removed = await removeUser(user.id);
@@ -907,14 +894,6 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (interaction.commandName === "donutcleanup") {
-      if (!canManageDonuts(interaction)) {
-        await interaction.reply({
-          content: "You need Manage Server permission to run donut cleanup.",
-          ephemeral: true,
-        });
-        return;
-      }
-
       const target = interaction.options.getString("target");
       const run = interaction.options.getBoolean("run") ?? false;
       let matched = [];

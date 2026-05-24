@@ -1,5 +1,5 @@
 require("dotenv").config();
-const { PermissionFlagsBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { REST, Routes, SlashCommandBuilder } = require("discord.js");
 
 const commands = [
   new SlashCommandBuilder()
@@ -25,7 +25,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName("removedonutuser")
     .setDescription("Remove a user from donut tracking")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addUserOption(option =>
       option.setName("user").setDescription("User to remove").setRequired(true)
     ),
@@ -33,7 +32,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName("donutcleanup")
     .setDescription("Preview or run donut leaderboard cleanup")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addStringOption(option =>
       option
         .setName("target")
