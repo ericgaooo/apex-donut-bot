@@ -98,9 +98,9 @@ const commands = [
     .addIntegerOption(option =>
       option
         .setName("limit")
-        .setDescription("Messages to scan, newest first. Default 1000, max 3000")
+        .setDescription("Max messages to scan. Leave blank to scan the whole channel")
         .setMinValue(100)
-        .setMaxValue(3000)
+        .setMaxValue(50000)
         .setRequired(false)
     ),
 ].map(command => command.toJSON());

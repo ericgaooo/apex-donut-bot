@@ -177,45 +177,85 @@ function makeUserAliases(user, displayName) {
     .filter((alias, index, aliases) => alias.length >= 2 && aliases.indexOf(alias) === index);
 }
 
-function parseDonutCountFromMessage(content, aliases) {
-  const text = normalizeMessageText(content);
+function getMessageSearchText(message) {
+  const embedText = message.embeds
+    .flatMap((embed) => [
+      embed.title,
+      embed.description,
+      embed.footer?.text,
+      ...(embed.fields ?? []).flatMap((field) => [field.name, field.value]),
+    ])
+    .filter(Boolean)
+    .join(" ");
+
+  return normalizeMessageText(`${message.content ?? ""} ${embedText}`);
+}
+
+function parseDonutEventFromText(text, aliases) {
   if (!text) return null;
 
-  const mentionedAlias = aliases.find((alias) =>
-    text.toLowerCase().includes(alias.toLowerCase())
-  );
+  const lowerText = text.toLowerCase();
+  const mentionedAlias = aliases.find((alias) => lowerText.includes(alias.toLowerCase()));
   if (!mentionedAlias) return null;
 
   const aliasPattern = escapeRegex(mentionedAlias);
-  const patterns = [
+  const totalPatterns = [
     new RegExp(
-      `${aliasPattern}.{0,120}(?:now has|has|donut total(?: is)? now|total(?: is)? now|new total:?|updated to|set to)\\D{0,24}(\\d{1,5})`,
+      `${aliasPattern}.{0,180}(?:now has|has|currently has|donut total(?: is)? now|total(?: is)? now|new total:?|updated to|set to|is now at|stands at)\\D{0,32}(\\d{1,6})(?:\\s+donut)?`,
       "i"
     ),
     new RegExp(
-      `(?:now has|has|donut total(?: is)? now|total(?: is)? now|new total:?|updated to|set to)\\D{0,24}(\\d{1,5}).{0,120}${aliasPattern}`,
+      `(?:now has|has|currently has|donut total(?: is)? now|total(?: is)? now|new total:?|updated to|set to|is now at|stands at)\\D{0,32}(\\d{1,6})(?:\\s+donut)?.{0,180}${aliasPattern}`,
       "i"
     ),
-    /(?:now has|new total:?|donut total(?: is)? now|total(?: is)? now)\D{0,24}(\d{1,5})/i,
+    new RegExp(`${aliasPattern}\\D{0,24}(\\d{1,6})\\s*(?:donut|🍩)`, "i"),
   ];
 
-  for (const pattern of patterns) {
+  for (const pattern of totalPatterns) {
     const match = text.match(pattern);
     if (!match) continue;
 
     const count = Number.parseInt(match[1], 10);
-    if (Number.isFinite(count) && count >= 0) return count;
+    if (Number.isFinite(count) && count >= 0) {
+      return {
+        type: "total",
+        value: count,
+      };
+    }
+  }
+
+  const deltaPatterns = [
+    new RegExp(`${aliasPattern}.{0,120}(?:gave|gets?|earned|receives?|awarded|added)\\D{0,20}(\\d{1,3})(?:\\s+donut|🍩)`, "i"),
+    new RegExp(`(?:gave|gets?|earned|receives?|awarded|added)\\D{0,20}(\\d{1,3})(?:\\s+donut|🍩).{0,120}${aliasPattern}`, "i"),
+    new RegExp(`${aliasPattern}.{0,40}\\+(\\d{1,3})\\s*(?:donut|🍩)`, "i"),
+  ];
+
+  for (const pattern of deltaPatterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+
+    const amount = Number.parseInt(match[1], 10);
+    if (Number.isFinite(amount) && amount > 0) {
+      return {
+        type: "delta",
+        value: amount,
+      };
+    }
   }
 
   return null;
 }
 
-async function fetchRecentMessages(channel, limit) {
+function parseDonutEventFromMessage(message, aliases) {
+  return parseDonutEventFromText(getMessageSearchText(message), aliases);
+}
+
+async function fetchChannelMessages(channel, limit = null) {
   const messages = [];
   let before;
 
-  while (messages.length < limit) {
-    const batchSize = Math.min(100, limit - messages.length);
+  while (limit === null || messages.length < limit) {
+    const batchSize = limit === null ? 100 : Math.min(100, limit - messages.length);
     const batch = await channel.messages.fetch({
       limit: batchSize,
       ...(before ? { before } : {}),
@@ -230,28 +270,102 @@ async function fetchRecentMessages(channel, limit) {
   return messages;
 }
 
-async function scanDonutHistory(channel, user, displayName, limit) {
+function buildTrendFromScanEvents(events, currentTotal) {
+  const sortedEvents = [...events].sort((a, b) => new Date(a.at) - new Date(b.at));
+  const rawPoints = [];
+  let estimatedCount = null;
+
+  for (const event of sortedEvents) {
+    if (event.type === "total") {
+      estimatedCount = event.value;
+    } else if (event.type === "delta") {
+      estimatedCount = (estimatedCount ?? 0) + event.value;
+    }
+
+    if (estimatedCount !== null) {
+      rawPoints.push({
+        at: event.at,
+        count: estimatedCount,
+        source: "history-scan",
+      });
+    }
+  }
+
+  if (rawPoints.length === 0) {
+    return {
+      points: [],
+      rawCount: 0,
+      outlierCount: 0,
+    };
+  }
+
+  const maxReasonable = Math.max(50, currentTotal + 25, Math.ceil(currentTotal * 1.75));
+  const cappedPoints = rawPoints.filter((point) => point.count <= maxReasonable);
+  const outliers = rawPoints.length - cappedPoints.length;
+  const cleaned = [];
+
+  for (let i = 0; i < cappedPoints.length; i++) {
+    const point = cappedPoints[i];
+    const prev = cleaned[cleaned.length - 1] ?? null;
+    const next = cappedPoints[i + 1] ?? null;
+
+    if (prev && next) {
+      const neighborsAgree = Math.abs(prev.count - next.count) <= Math.max(8, currentTotal * 0.12);
+      const spikeThreshold = Math.max(15, currentTotal * 0.35);
+      const isSpike =
+        neighborsAgree &&
+        Math.abs(point.count - prev.count) >= spikeThreshold &&
+        Math.abs(point.count - next.count) >= spikeThreshold;
+
+      if (isSpike) continue;
+    }
+
+    if (prev && point.count < prev.count) {
+      const allowedDip = Math.max(3, Math.ceil(prev.count * 0.12));
+      if (prev.count - point.count > allowedDip) continue;
+    }
+
+    cleaned.push(point);
+  }
+
+  const byDay = new Map();
+  for (const point of cleaned) {
+    const day = point.at.slice(0, 10);
+    const existing = byDay.get(day);
+    if (!existing || new Date(point.at) > new Date(existing.at)) {
+      byDay.set(day, point);
+    }
+  }
+
+  const points = [...byDay.values()].sort((a, b) => new Date(a.at) - new Date(b.at));
+
+  return {
+    points,
+    rawCount: rawPoints.length,
+    outlierCount: outliers + cappedPoints.length - cleaned.length,
+  };
+}
+
+async function scanDonutHistory(channel, user, displayName, limit, currentTotal) {
   const aliases = makeUserAliases(user, displayName);
-  const messages = await fetchRecentMessages(channel, limit);
-  const points = [];
+  const messages = await fetchChannelMessages(channel, limit);
+  const events = [];
 
   for (const message of messages) {
-    const count = parseDonutCountFromMessage(message.content, aliases);
-    if (count === null) continue;
+    const event = parseDonutEventFromMessage(message, aliases);
+    if (!event) continue;
 
-    points.push({
+    events.push({
       at: message.createdAt.toISOString(),
-      count,
-      source: "history-scan",
+      ...event,
     });
   }
 
-  const byTimestamp = new Map();
-  for (const point of points) {
-    byTimestamp.set(point.at, point);
-  }
-
-  return [...byTimestamp.values()].sort((a, b) => new Date(a.at) - new Date(b.at));
+  return {
+    scannedCount: messages.length,
+    eventCount: events.length,
+    ...buildTrendFromScanEvents(events, currentTotal),
+  };
 }
 
 function calculateDonutRate(history) {
@@ -1359,7 +1473,7 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.commandName === "donuthistoryscan") {
       const channel = interaction.options.getChannel("channel");
       const user = interaction.options.getUser("user");
-      const limit = interaction.options.getInteger("limit") ?? 1000;
+      const limit = interaction.options.getInteger("limit") ?? null;
       const displayName = await getServerDisplayName(interaction, user);
 
       if (!channel?.messages?.fetch) {
@@ -1372,10 +1486,11 @@ client.on("interactionCreate", async (interaction) => {
 
       await interaction.deferReply();
 
-      const points = await scanDonutHistory(channel, user, displayName, limit);
-      const history = await replaceUserHistoryFromScan(user.id, points);
+      const currentTotal = await getUserCount(user.id);
+      const scan = await scanDonutHistory(channel, user, displayName, limit, currentTotal);
+      const history = await replaceUserHistoryFromScan(user.id, scan.points);
 
-      const preview = points
+      const preview = scan.points
         .slice(-5)
         .map((point) => {
           const date = new Date(point.at).toLocaleDateString("en-US", {
@@ -1388,9 +1503,10 @@ client.on("interactionCreate", async (interaction) => {
         .join("\n");
 
       await interaction.editReply(
-        `📈 Scanned **${limit}** message(s) in ${channel} for **${displayName}**.\n` +
-          `Found **${points.length}** donut history point(s). Stored timeline now has **${history.length}** point(s).\n` +
-          `${preview ? `\nLatest matches:\n${preview}` : "\nNo matches found. Try a bigger limit or a channel with the old donut messages."}`
+        `📈 Scanned **${scan.scannedCount}** message(s) in ${channel} for **${displayName}**.\n` +
+          `Matched **${scan.eventCount}** donut-ish update(s), built **${scan.points.length}** trend point(s), filtered **${scan.outlierCount}** noisy point(s).\n` +
+          `Stored timeline now has **${history.length}** point(s).\n` +
+          `${preview ? `\nLatest trend points:\n${preview}` : "\nNo usable trend points found. Try a channel with the old donut messages."}`
       );
       return;
     }
